@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\CashSessions\CloseCashSession;
+use App\Actions\CashSessions\OpenCashSession;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CloseCashSessionRequest;
 use App\Http\Requests\OpenCashSessionRequest;
 use App\Http\Resources\CashSessionResource;
 use App\Models\CashSession;
-use App\Support\CashSessionRules;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -70,7 +71,7 @@ class CashSessionController extends Controller
 
         $validated = $validator->validated();
 
-        $session = CashSession::where('status', 'open')
+        $session = CashSession::open()
             ->where('branch_id', $validated['branch_id'])
             ->where('device_identifier', $validated['device_identifier'])
             ->with('branch')
@@ -94,13 +95,10 @@ class CashSessionController extends Controller
      * Open a new cash session.
      * Only one session can be open at a time.
      */
-    public function open(OpenCashSessionRequest $request)
+    public function open(OpenCashSessionRequest $request, OpenCashSession $openCashSession)
     {
         try {
-            CashSessionRules::ensureNoOpenSessionForBranchDevice(
-                (int) $request->branch_id,
-                $request->device_identifier,
-            );
+            $session = $openCashSession->handle($request->validated());
         } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,
@@ -108,15 +106,6 @@ class CashSessionController extends Controller
                 'errors' => $e->errors(),
             ], 422);
         }
-
-        $session = CashSession::create([
-            'branch_id' => $request->branch_id,
-            'device_identifier' => $request->device_identifier,
-            'opening_balance' => $request->opening_balance,
-            'notes' => $request->notes,
-            'status' => 'open',
-            'opened_at' => now(),
-        ]);
 
         $session->load('branch');
 
@@ -131,7 +120,7 @@ class CashSessionController extends Controller
      * Close an existing cash session.
      * Calculates the difference between expected and actual closing balance.
      */
-    public function close(CloseCashSessionRequest $request, CashSession $cashSession)
+    public function close(CloseCashSessionRequest $request, CashSession $cashSession, CloseCashSession $closeCashSession)
     {
         if ($cashSession->status === 'closed') {
             return response()->json([
@@ -140,26 +129,17 @@ class CashSessionController extends Controller
             ], 422);
         }
 
-        $cashSession->update([
-            'closing_balance' => $request->closing_balance,
-            'closed_at' => now(),
-            'status' => 'closed',
-            'notes' => $request->notes ?? $cashSession->notes,
-        ]);
-
         $cashSession->load('branch');
-        $expectedBalance = CashSessionRules::expectedBalance($cashSession);
-
-        $difference = $request->closing_balance - $expectedBalance;
+        $result = $closeCashSession->handle($cashSession, $request->validated());
 
         return response()->json([
             'success' => true,
             'message' => 'Cash session closed successfully.',
             'data' => [
-                'session' => new CashSessionResource($cashSession),
-                'expected_balance' => round($expectedBalance, 2),
-                'actual_balance' => round((float) $request->closing_balance, 2),
-                'difference' => round($difference, 2),
+                'session' => new CashSessionResource($result['session']),
+                'expected_balance' => $result['expected_balance'],
+                'actual_balance' => $result['actual_balance'],
+                'difference' => $result['difference'],
             ],
         ]);
     }

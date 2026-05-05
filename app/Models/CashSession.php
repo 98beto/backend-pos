@@ -27,6 +27,11 @@ class CashSession extends Model
         'closed_at'       => 'datetime',
     ];
 
+    public function scopeOpen($query)
+    {
+        return $query->where('status', 'open');
+    }
+
     public function sales()
     {
         return $this->hasMany(Sale::class);

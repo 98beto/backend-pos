@@ -51,7 +51,7 @@ class DashboardController extends Controller
             ->sum('sale_details.quantity');
 
         // ── Open cash session ──────────────────────────────────────────────────
-        $openSession = CashSession::where('status', 'open')
+        $openSession = CashSession::open()
             ->when($request->branch_id, fn ($q, $branchId) => $q->where('branch_id', $branchId))
             ->latest('opened_at')
             ->first();

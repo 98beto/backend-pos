@@ -2,17 +2,12 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\Sales\ProcessSale;
 use App\Http\Controllers\Controller;
-use App\Models\CashMovement;
 use App\Http\Requests\StoreSaleRequest;
 use App\Http\Resources\SaleResource;
-use App\Models\CashSession;
-use App\Models\InventoryMovement;
-use App\Models\Product;
 use App\Models\Sale;
-use App\Support\CashSessionRules;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Http\Request;
 
@@ -103,96 +98,12 @@ class SaleController extends Controller
      *   ]
      * }
      */
-    public function store(StoreSaleRequest $request)
+    public function store(StoreSaleRequest $request, ProcessSale $processSale)
     {
         $validated = $request->validated();
 
         try {
-            $sale = DB::transaction(function () use ($validated) {
-                $cashSession = CashSession::lockForUpdate()->findOrFail($validated['cash_session_id']);
-
-                CashSessionRules::ensureCashSessionIsOpen($cashSession);
-                CashSessionRules::ensureCashSessionBelongsToBranch($cashSession, (int) $validated['branch_id']);
-
-                // 1. Validate stock availability for all items before doing anything
-                foreach ($validated["items"] as $item) {
-                    $product = Product::lockForUpdate()->find(
-                        $item["product_id"],
-                    );
-
-                    if ($product->stock_quantity < $item["quantity"]) {
-                        throw ValidationException::withMessages([
-                            "items" =>
-                                "Insufficient stock for product: \"{$product->name}\". " .
-                                "Available: {$product->stock_quantity}, Requested: {$item["quantity"]}.",
-                        ]);
-                    }
-                }
-
-                // 2. Calculate sale totals from items (never trust frontend totals)
-                $subtotal = collect($validated["items"])->sum("subtotal");
-                $taxAmount = collect($validated["items"])->sum("tax_amount");
-                $discount = $validated["discount_amount"] ?? 0;
-                $total = $subtotal + $taxAmount - $discount;
-
-                // 3. Create the sale header
-                $sale = Sale::create([
-                    'customer_id'     => $validated['customer_id'] ?? null,
-                    'cash_session_id' => $validated['cash_session_id'],
-                    'branch_id'       => $validated['branch_id'],
-                    'payment_method'  => $validated['payment_method'],
-                    'subtotal'        => $subtotal,
-                    'tax_amount'      => $taxAmount,
-                    'discount_amount' => $discount,
-                    'total_amount'    => $total,
-                    'status'          => 'completed',
-                    'sale_date'       => now(),
-                ]);
-
-                // 4. Create each sale detail and deduct stock
-                foreach ($validated["items"] as $item) {
-                    // Store historical price — never re-read the live product price
-                    $sale->saleDetails()->create([
-                        "product_id" => $item["product_id"],
-                        "quantity" => $item["quantity"],
-                        "unit_price" => $item["unit_price"],
-                        "tax_amount" => $item["tax_amount"],
-                        "subtotal" => $item["subtotal"],
-                        "total" => $item["total"],
-                    ]);
-
-                    // Atomic stock decrement
-                    Product::where("id", $item["product_id"])->decrement(
-                        "stock_quantity",
-                        $item["quantity"],
-                    );
-
-                    InventoryMovement::create([
-                        'product_id' => $item['product_id'],
-                        'branch_id' => $sale->branch_id,
-                        'type' => 'out',
-                        'quantity' => $item['quantity'],
-                        'source' => 'sale',
-                        'reference_id' => $sale->id,
-                        'notes' => "Sale #{$sale->id}",
-                    ]);
-                }
-
-                if ($sale->payment_method === 'cash') {
-                    CashMovement::create([
-                        'cash_session_id' => $sale->cash_session_id,
-                        'branch_id' => $sale->branch_id,
-                        'type' => 'in',
-                        'category' => 'sale',
-                        'amount' => $sale->total_amount,
-                        'source' => 'sale',
-                        'reference_id' => $sale->id,
-                        'notes' => "Sale #{$sale->id}",
-                    ]);
-                }
-
-                return $sale;
-            });
+            $sale = $processSale->handle($validated);
 
             $sale->load("customer", "cashSession", "saleDetails.product", "branch");
 

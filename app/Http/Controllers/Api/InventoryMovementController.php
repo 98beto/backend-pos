@@ -2,13 +2,12 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\Inventory\RecordInventoryMovement;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreInventoryMovementRequest;
 use App\Http\Resources\InventoryMovementResource;
 use App\Models\InventoryMovement;
-use App\Models\Product;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class InventoryMovementController extends Controller
@@ -46,37 +45,10 @@ class InventoryMovementController extends Controller
      * Record a new manual inventory movement (in, out, or adjustment).
      * Also updates the product's stock_quantity accordingly.
      */
-    public function store(StoreInventoryMovementRequest $request)
+    public function store(StoreInventoryMovementRequest $request, RecordInventoryMovement $recordInventoryMovement)
     {
         try {
-            $movement = DB::transaction(function () use ($request) {
-                $product = Product::lockForUpdate()->findOrFail($request->product_id);
-
-                // For 'out' movements, check there is enough stock
-                if ($request->type === 'out' && $product->stock_quantity < $request->quantity) {
-                    throw ValidationException::withMessages([
-                        'quantity' => "Insufficient stock for \"{$product->name}\". "
-                            ."Available: {$product->stock_quantity}, Requested: {$request->quantity}.",
-                    ]);
-                }
-
-                // Update stock based on movement type
-                match ($request->type) {
-                    'in' => $product->increment('stock_quantity', $request->quantity),
-                    'out' => $product->decrement('stock_quantity', $request->quantity),
-                    'adjustment' => $product->update(['stock_quantity' => $request->quantity]),
-                };
-
-                return InventoryMovement::create([
-                    'product_id' => $request->product_id,
-                    'branch_id' => $request->branch_id,
-                    'type' => $request->type,
-                    'quantity' => $request->quantity,
-                    'source' => 'manual',
-                    'reference_id' => null,
-                    'notes' => $request->notes,
-                ]);
-            });
+            $movement = $recordInventoryMovement->handle($request->validated());
 
             $movement->load('product', 'branch');
 
