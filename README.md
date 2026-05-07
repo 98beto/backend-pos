@@ -33,9 +33,7 @@ http://localhost:8000
 Production deploy uses:
 
 - `Dockerfile`
-- `.docker/railway/nginx.conf`
-- `.docker/railway/supervisord.conf`
-- `.docker/railway/start-container`
+- (production runtime files are maintained in the repository but are not used in local development)
 
 Deployment notes live in:
 
