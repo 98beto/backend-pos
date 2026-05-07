@@ -26,8 +26,8 @@ DB_DATABASE=${{Postgres.PGDATABASE}}
 DB_USERNAME=${{Postgres.PGUSER}}
 DB_PASSWORD=${{Postgres.PGPASSWORD}}
 
-SESSION_DRIVER=database
-CACHE_STORE=database
+CACHE_STORE=file
+SESSION_DRIVER=file
 QUEUE_CONNECTION=database
 ```
 
@@ -49,4 +49,5 @@ php artisan migrate --force
 
 - The runtime uses `nginx + php-fpm + supervisord` in one container.
 - Logs are expected through `stderr` so Railway can capture them.
+- The startup script intentionally avoids `artisan cache:clear` / `config:cache` so the first boot does not depend on a pre-migrated database.
 - `route:cache` is intentionally not used because `routes/web.php` still contains a closure.
