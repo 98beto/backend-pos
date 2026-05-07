@@ -10,8 +10,8 @@ services:
     env_file:
       - .env
     environment:
-      APP_ENV: production
-      APP_DEBUG: "false"
+      APP_ENV: local
+      APP_DEBUG: "true"
       APP_URL: http://localhost:8000
       DB_CONNECTION: pgsql
       DB_HOST: postgres
@@ -45,7 +45,10 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      # Postgres 18+ expects a mount at /var/lib/postgresql so data directories
+      # can be placed in versioned subfolders. Mounting at /var/lib/postgresql/data
+      # causes an incompatible layout error. Mount the volume at /var/lib/postgresql.
+      - pg_data:/var/lib/postgresql
 
 volumes:
   pg_data:
