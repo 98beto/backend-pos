@@ -1,4 +1,39 @@
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    container_name: pos_app
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: http://localhost:8000
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: pos_system
+      DB_USERNAME: laravel
+      DB_PASSWORD: laravel
+    volumes:
+      - ./:/var/www/html
+
+  nginx:
+    image: nginx:1.29-alpine
+    container_name: pos_nginx
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "8000:80"
+    volumes:
+      - ./:/var/www/html:ro
+      - ./.docker/local/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
   postgres:
     image: postgres:18-alpine
     container_name: pos_database
@@ -11,5 +46,6 @@ services:
       - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
+
 volumes:
   pg_data:
