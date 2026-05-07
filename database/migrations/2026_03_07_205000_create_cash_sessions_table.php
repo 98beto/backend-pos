@@ -13,6 +13,8 @@ return new class extends Migration
     {
         Schema::create('cash_sessions', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('branch_id')->constrained();
+            $table->foreignId('device_id')->constrained('devices');
             $table->timestamp('opened_at')->useCurrent();
             $table->timestamp('closed_at')->nullable();
             $table->decimal('opening_balance', 10, 2);

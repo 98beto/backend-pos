@@ -17,7 +17,6 @@ class StoreSavedCartRequest extends FormRequest
             'name' => 'required|string|max:255',
             'customer_id' => 'nullable|exists:customers,id',
             'cash_session_id' => 'nullable|exists:cash_sessions,id',
-            'branch_id' => 'required|exists:branches,id',
             'discount_amount' => 'sometimes|numeric|min:0',
             'status' => 'sometimes|string|in:saved,in_progress',
             'notes' => 'nullable|string',

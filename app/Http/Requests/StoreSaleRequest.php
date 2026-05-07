@@ -16,7 +16,6 @@ class StoreSaleRequest extends FormRequest
     {
         return [
             'customer_id' => 'nullable|exists:customers,id',
-            'branch_id' => 'required|exists:branches,id',
             'cash_session_id' => [
                 'required',
                 Rule::exists('cash_sessions', 'id')->where('status', 'open'),

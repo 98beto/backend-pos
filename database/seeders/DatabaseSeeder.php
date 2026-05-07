@@ -4,13 +4,11 @@ namespace Database\Seeders;
 
 use App\Models\Brand;
 use App\Models\Branch;
-use App\Models\CashSession;
+use App\Models\BranchProduct;
 use App\Models\Category;
 use App\Models\Customer;
 use App\Models\InventoryMovement;
 use App\Models\Product;
-use App\Models\Sale;
-use App\Models\SaleDetail;
 use App\Models\Supplier;
 use Illuminate\Database\Seeder;
 
@@ -18,7 +16,14 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        $defaultBranch = Branch::where('code', 'MATRIZ')->firstOrFail();
+        $defaultBranch = Branch::firstOrCreate(
+            ['code' => 'MATRIZ'],
+            [
+                'name' => 'Ferreteria Metropolis',
+                'address' => null,
+                'is_active' => true,
+            ],
+        );
 
         // ── 1. Categorías ──────────────────────────────────────────────────────
         $categories = collect([
@@ -30,7 +35,7 @@ class DatabaseSeeder extends Seeder
             "Construcción",
             "Tornillería y Fijaciones",
             "Adhesivos y Selladores",
-        ])->map(fn($name) => Category::create(["name" => $name]));
+        ])->map(fn($name) => Category::firstOrCreate(["name" => $name]));
 
         // ── 2. Marcas ──────────────────────────────────────────────────────────
         $brands = collect([
@@ -44,7 +49,7 @@ class DatabaseSeeder extends Seeder
             "Urrea",
             "Pretul",
             "Surtek",
-        ])->map(fn($name) => Brand::create(["name" => $name]));
+        ])->map(fn($name) => Brand::firstOrCreate(["name" => $name]));
 
         // ── 3. Proveedores ─────────────────────────────────────────────────────
         Supplier::factory(6)->create();
@@ -196,6 +201,7 @@ class DatabaseSeeder extends Seeder
         $products = collect($catalog)->map(function ($item) use (
             $categories,
             $brands,
+            $defaultBranch,
         ) {
             [
                 $name,
@@ -209,160 +215,31 @@ class DatabaseSeeder extends Seeder
                 $brandIdx,
             ] = $item;
 
-            return Product::create([
-                "name" => $name,
+            $product = Product::updateOrCreate([
                 "sku" => $sku,
+            ], [
+                "name" => $name,
                 "description" => null,
                 "cost_price" => $cost,
-                "price" => $price,
-                "stock_quantity" => $stock,
-                "min_stock" => $minStock,
                 "unit_measure" => $unit,
-                "barcode" => null,
-                "is_active" => true,
                 "category_id" => $categories[$catIdx]->id,
-                "brand_id" =>
-                    $brandIdx !== null ? $brands[$brandIdx]->id : null,
+                "brand_id" => $brandIdx !== null ? $brands[$brandIdx]->id : null,
             ]);
+
+            BranchProduct::updateOrCreate([
+                'branch_id' => $defaultBranch->id,
+                'product_id' => $product->id,
+            ], [
+                'price' => $price,
+                'stock_quantity' => $stock,
+                'min_stock' => $minStock,
+                'is_available' => true,
+            ]);
+
+            return $product;
         });
 
-        // // ── 6. Sesiones de caja ────────────────────────────────────────────────
-        // // 4 sesiones cerradas en días anteriores
-        // $closedSessions = collect([
-        //     ["-6 days", 500, 2850.5],
-        //     ["-5 days", 500, 3120.0],
-        //     ["-4 days", 500, 1980.75],
-        //     ["-3 days", 500, 4250.0],
-        // ])->map(function ($data) {
-        //     [$daysAgo, $opening, $closing] = $data;
-        //     return CashSession::create([
-        //         "status" => "closed",
-        //         "opening_balance" => $opening,
-        //         "closing_balance" => $closing,
-        //         "opened_at" => now()->modify($daysAgo)->setTime(8, 0),
-        //         "closed_at" => now()->modify($daysAgo)->setTime(18, 0),
-        //         "notes" => null,
-        //     ]);
-        // });
-
-        // 1 sesión abierta hoy
-        // $openSession = CashSession::create([
-        //     'status'          => 'open',
-        //     'opening_balance' => 500.00,
-        //     'closing_balance' => null,
-        //     'opened_at'       => now()->setTime(8, 0),
-        //     'closed_at'       => null,
-        //     'notes'           => 'Turno apertura',
-        // ]);
-
-        // $allSessions = $closedSessions->push($openSession);
-
-        // ── 7. Ventas con detalles ─────────────────────────────────────────────
-        $customers = Customer::all();
-
-        // // Generar 30 ventas distribuidas entre sesiones
-        // $salesData = [
-        //     // [session_index, customer_index_or_null, payment, items_count, days_ago]
-        //     [0, 0, "cash", 2, 6],
-        //     [0, null, "cash", 1, 6],
-        //     [0, 1, "card", 3, 6],
-        //     [0, null, "cash", 2, 6],
-        //     [0, 2, "cash", 1, 6],
-        //     [0, 9, "transfer", 4, 6],
-        //     [1, null, "cash", 2, 5],
-        //     [1, 3, "card", 1, 5],
-        //     [1, null, "cash", 3, 5],
-        //     [1, 4, "cash", 2, 5],
-        //     [1, 10, "transfer", 5, 5],
-        //     [1, null, "cash", 1, 5],
-        //     [2, 5, "cash", 2, 4],
-        //     [2, null, "cash", 1, 4],
-        //     [2, 6, "card", 3, 4],
-        //     [2, null, "cash", 2, 4],
-        //     [3, null, "cash", 1, 3],
-        //     [3, 7, "cash", 4, 3],
-        //     [3, 11, "transfer", 2, 3],
-        //     [3, null, "card", 1, 3],
-        //     [3, 8, "cash", 3, 3],
-        //     [3, null, "cash", 2, 3],
-        //     // Ventas de hoy (sesión abierta)
-        //     [4, null, "cash", 1, 0],
-        //     [4, 0, "cash", 2, 0],
-        //     [4, 1, "card", 1, 0],
-        //     [4, null, "cash", 3, 0],
-        //     [4, 3, "cash", 2, 0],
-        //     [4, null, "transfer", 1, 0],
-        //     [4, 2, "cash", 1, 0],
-        //     [4, null, "cash", 2, 0],
-        // ];
-
-        // // Índices de productos "vendibles" (con stock suficiente)
-        // $sellableIndexes = $products
-        //     ->filter(fn($p) => $p->stock_quantity >= 5)
-        //     ->values();
-
-        // foreach ($salesData as $sd) {
-        //     [$sessionIdx, $custIdx, $payment, $itemCount, $daysAgo] = $sd;
-
-        //     $session = $allSessions[$sessionIdx];
-        //     $customerId =
-        //         $custIdx !== null
-        //             ? $customers[$custIdx % $customers->count()]->id
-        //             : null;
-
-        //     // Construir items
-        //     $items = [];
-        //     $pickedIds = [];
-        //     for ($i = 0; $i < $itemCount; $i++) {
-        //         // Elegir producto que no se repita en la misma venta
-        //         $product = $sellableIndexes
-        //             ->filter(fn($p) => !in_array($p->id, $pickedIds))
-        //             ->random();
-        //         $pickedIds[] = $product->id;
-
-        //         $qty = rand(1, 3);
-        //         $subtotal = round($qty * $product->price, 2);
-
-        //         $items[] = [
-        //             "product_id" => $product->id,
-        //             "quantity" => $qty,
-        //             "unit_price" => $product->price,
-        //             "tax_amount" => 0,
-        //             "subtotal" => $subtotal,
-        //             "total" => $subtotal,
-        //         ];
-        //     }
-
-        //     $totalSubtotal = collect($items)->sum("subtotal");
-        //     $discount = $sessionIdx % 5 === 0 ? 0 : 0; // sin descuentos para simplicidad
-
-        //     $saleDate =
-        //         $daysAgo === 0
-        //             ? now()->subMinutes(rand(10, 240))
-        //             : now()
-        //                 ->modify("-{$daysAgo} days")
-        //                 ->setTime(rand(9, 17), rand(0, 59));
-
-        //     $sale = Sale::create([
-        //         "customer_id" => $customerId,
-        //         "cash_session_id" => $session->id,
-        //         "payment_method" => $payment,
-        //         "subtotal" => $totalSubtotal,
-        //         "tax_amount" => 0,
-        //         "discount_amount" => $discount,
-        //         "total_amount" => $totalSubtotal,
-        //         "status" => "completed",
-        //         "sale_date" => $saleDate,
-        //     ]);
-
-        //     foreach ($items as $item) {
-        //         SaleDetail::create(
-        //             array_merge($item, ["sale_id" => $sale->id]),
-        //         );
-        //     }
-        // }
-
-        // ── 8. Movimientos de inventario ───────────────────────────────────────
+        // ── 6. Movimientos de inventario ───────────────────────────────────────
         $movementsData = [
             // [product_sku, type, quantity, notes]
             ["HM-001", "in", 50, "Compra OC-2026-001"],
@@ -398,13 +275,18 @@ class DatabaseSeeder extends Seeder
                 continue;
             }
 
-            InventoryMovement::create([
+            InventoryMovement::updateOrCreate([
                 "product_id" => $product->id,
                 "branch_id" => $defaultBranch->id,
                 "type" => $type,
                 "quantity" => $quantity,
+            ], [
+                'source' => 'manual',
+                'reference_id' => null,
                 "notes" => $notes,
             ]);
         }
+
+        $this->call(DeviceSeeder::class);
     }
 }

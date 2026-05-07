@@ -3,10 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\Branch;
-use App\Models\CashSession;
 use App\Models\CashMovement;
+use App\Models\Device;
 use App\Models\InventoryMovement;
-use App\Models\Product;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -14,27 +13,23 @@ class SaleInventoryMovementTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_sale_decrements_stock_and_creates_inventory_movements(): void
+    public function test_sale_decrements_branch_stock_and_creates_inventory_movements(): void
     {
         $branch = Branch::factory()->create();
+        $device = $this->actingAsDevice($branch, ['identifier' => 'POS-01']);
+        $cashSession = $this->createOpenCashSession($device);
 
-        $cashSession = CashSession::factory()->open()->create([
-            'branch_id' => $branch->id,
-            'device_identifier' => 'POS-01',
-        ]);
-
-        $productA = Product::factory()->create([
+        $productA = $this->createProductInBranch($branch, ['sku' => 'PROD-A'], [
             'stock_quantity' => 10,
             'price' => 20,
         ]);
 
-        $productB = Product::factory()->create([
+        $productB = $this->createProductInBranch($branch, ['sku' => 'PROD-B'], [
             'stock_quantity' => 8,
             'price' => 15,
         ]);
 
         $response = $this->postJson('/api/sales', [
-            'branch_id' => $branch->id,
             'cash_session_id' => $cashSession->id,
             'payment_method' => 'cash',
             'discount_amount' => 0,
@@ -61,23 +56,25 @@ class SaleInventoryMovementTest extends TestCase
         $response->assertCreated()->assertJsonPath('success', true);
         $response
             ->assertJsonPath('data.branch_id', $branch->id)
-            ->assertJsonPath('data.branch.id', $branch->id)
-            ->assertJsonPath('data.branch.name', $branch->name);
+            ->assertJsonPath('data.branch.id', $branch->id);
 
         $saleId = $response->json('data.id');
 
-        $this->assertDatabaseHas('products', [
-            'id' => $productA->id,
+        $this->assertDatabaseHas('branch_product', [
+            'branch_id' => $branch->id,
+            'product_id' => $productA->id,
             'stock_quantity' => 8,
         ]);
 
-        $this->assertDatabaseHas('products', [
-            'id' => $productB->id,
+        $this->assertDatabaseHas('branch_product', [
+            'branch_id' => $branch->id,
+            'product_id' => $productB->id,
             'stock_quantity' => 5,
         ]);
 
         $this->assertDatabaseHas('inventory_movements', [
             'product_id' => $productA->id,
+            'branch_id' => $branch->id,
             'type' => 'out',
             'quantity' => 2,
             'source' => 'sale',
@@ -86,6 +83,7 @@ class SaleInventoryMovementTest extends TestCase
 
         $this->assertDatabaseHas('inventory_movements', [
             'product_id' => $productB->id,
+            'branch_id' => $branch->id,
             'type' => 'out',
             'quantity' => 3,
             'source' => 'sale',
@@ -106,19 +104,15 @@ class SaleInventoryMovementTest extends TestCase
     public function test_failed_sale_does_not_create_inventory_movements(): void
     {
         $branch = Branch::factory()->create();
+        $device = $this->actingAsDevice($branch, ['identifier' => 'POS-01']);
+        $cashSession = $this->createOpenCashSession($device);
 
-        $cashSession = CashSession::factory()->open()->create([
-            'branch_id' => $branch->id,
-            'device_identifier' => 'POS-01',
-        ]);
-
-        $product = Product::factory()->create([
+        $product = $this->createProductInBranch($branch, ['sku' => 'PROD-C'], [
             'stock_quantity' => 1,
             'price' => 20,
         ]);
 
         $response = $this->postJson('/api/sales', [
-            'branch_id' => $branch->id,
             'cash_session_id' => $cashSession->id,
             'payment_method' => 'cash',
             'items' => [
@@ -135,8 +129,9 @@ class SaleInventoryMovementTest extends TestCase
 
         $response->assertStatus(422);
 
-        $this->assertDatabaseHas('products', [
-            'id' => $product->id,
+        $this->assertDatabaseHas('branch_product', [
+            'branch_id' => $branch->id,
+            'product_id' => $product->id,
             'stock_quantity' => 1,
         ]);
 
@@ -147,10 +142,13 @@ class SaleInventoryMovementTest extends TestCase
 
     public function test_inventory_movement_filters_support_source_and_reference_id(): void
     {
-        $product = Product::factory()->create();
+        $branch = Branch::factory()->create();
+        $this->actingAsDevice($branch);
+        $product = $this->createProductInBranch($branch, ['sku' => 'PROD-D']);
 
         $saleMovement = InventoryMovement::factory()->create([
             'product_id' => $product->id,
+            'branch_id' => $branch->id,
             'type' => 'out',
             'source' => 'sale',
             'reference_id' => 123,
@@ -158,6 +156,7 @@ class SaleInventoryMovementTest extends TestCase
 
         InventoryMovement::factory()->create([
             'product_id' => $product->id,
+            'branch_id' => $branch->id,
             'type' => 'out',
             'source' => 'manual',
             'reference_id' => null,
@@ -174,23 +173,24 @@ class SaleInventoryMovementTest extends TestCase
             ->assertJsonPath('data.data.0.reference_id', 123);
     }
 
-    public function test_sale_rejects_cash_session_from_a_different_branch(): void
+    public function test_sale_rejects_cash_session_from_a_different_device(): void
     {
-        $branchA = Branch::factory()->create();
-        $branchB = Branch::factory()->create();
-
-        $cashSession = CashSession::factory()->open()->create([
-            'branch_id' => $branchA->id,
-            'device_identifier' => 'POS-01',
+        $branch = Branch::factory()->create();
+        $deviceA = $this->actingAsDevice($branch, ['identifier' => 'POS-01']);
+        $deviceB = Device::factory()->create([
+            'branch_id' => $branch->id,
+            'identifier' => 'POS-02',
         ]);
 
-        $product = Product::factory()->create([
+        $cashSession = $this->createOpenCashSession($deviceA);
+        $product = $this->createProductInBranch($branch, ['sku' => 'PROD-E'], [
             'stock_quantity' => 10,
             'price' => 20,
         ]);
 
+        $this->actingAs($deviceB, 'sanctum');
+
         $response = $this->postJson('/api/sales', [
-            'branch_id' => $branchB->id,
             'cash_session_id' => $cashSession->id,
             'payment_method' => 'cash',
             'items' => [
@@ -207,7 +207,7 @@ class SaleInventoryMovementTest extends TestCase
 
         $response
             ->assertStatus(422)
-            ->assertJsonPath('errors.branch_id.0', 'The selected cash session does not belong to the given branch.');
+            ->assertJsonPath('errors.cash_session_id.0', 'The selected cash session does not belong to the authenticated device.');
 
         $this->assertDatabaseCount('sales', 0);
         $this->assertDatabaseCount('cash_movements', 0);

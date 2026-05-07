@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreProductRequest;
 use App\Http\Requests\UpdateProductRequest;
+use App\Http\Requests\UpdateProductBranchRequest;
 use App\Http\Resources\ProductResource;
+use App\Models\BranchProduct;
 use App\Models\Product;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class ProductController extends Controller
 {
@@ -15,20 +18,22 @@ class ProductController extends Controller
      * Display a listing of products.
      *
      * Supported query parameters:
-     *   ?search=      Search by name, SKU, or barcode (ILIKE)
+     *   ?search=      Search by name or SKU (ILIKE)
      *   ?category_id= Filter by category
      *   ?brand_id=    Filter by brand
-     *   ?is_active=   Filter by active status (1 or 0)
      *   ?low_stock=1  Only products where stock_quantity <= min_stock
      */
     public function index(Request $request)
     {
+        $branchId = $this->currentDevice()->branch_id;
+
         $products = Product::with("category", "brand")
+            ->whereHas('branchProducts', fn ($q) => $q->where('branch_id', $branchId))
+            ->with(['currentBranchProduct' => fn ($q) => $q->where('branch_id', $branchId)->with('branch')])
             ->when($request->search, function ($q, $search) {
                 $q->where(function ($q) use ($search) {
                     $q->where("name", "ILIKE", "%{$search}%")
-                        ->orWhere("sku", "ILIKE", "%{$search}%")
-                        ->orWhere("barcode", "ILIKE", "%{$search}%");
+                        ->orWhere("sku", "ILIKE", "%{$search}%");
                 });
             })
             ->when(
@@ -40,15 +45,10 @@ class ProductController extends Controller
                 fn($q, $id) => $q->where("brand_id", $id),
             )
             ->when(
-                $request->filled("is_active"),
-                fn($q) => $q->where(
-                    "is_active",
-                    filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN),
-                ),
-            )
-            ->when(
                 $request->low_stock,
-                fn($q) => $q->whereColumn("stock_quantity", "<=", "min_stock"),
+                fn($q) => $q->whereHas('branchProducts', fn ($branchQuery) => $branchQuery
+                    ->where('branch_id', $branchId)
+                    ->whereColumn('stock_quantity', '<=', 'min_stock')),
             )
             ->orderBy("name", "asc")
             ->paginate(50);
@@ -68,13 +68,40 @@ class ProductController extends Controller
      */
     public function store(StoreProductRequest $request)
     {
-        $product = Product::create(
-            array_merge($request->validated(), [
-                "min_stock" => $request->min_stock ?? 5,
-            ]),
+        $device = $this->currentDevice();
+        $validated = $request->validated();
+
+        $product = Product::firstOrCreate(
+            ['sku' => $validated['sku']],
+            [
+                'name' => $validated['name'],
+                'description' => $validated['description'] ?? null,
+                'cost_price' => $validated['cost_price'] ?? null,
+                'unit_measure' => $validated['unit_measure'] ?? 'PZA',
+                'category_id' => $validated['category_id'] ?? null,
+                'brand_id' => $validated['brand_id'] ?? null,
+            ],
         );
 
-        $product->load("category", "brand");
+        $branchProduct = BranchProduct::where('branch_id', $device->branch_id)
+            ->where('product_id', $product->id)
+            ->first();
+
+        if ($branchProduct) {
+            throw ValidationException::withMessages([
+                'sku' => 'This product is already registered in the current branch.',
+            ]);
+        }
+
+        $product->branchProducts()->create([
+            'branch_id' => $device->branch_id,
+            'price' => $validated['price'],
+            'stock_quantity' => $validated['stock_quantity'],
+            'min_stock' => $validated['min_stock'] ?? 5,
+            'is_available' => $validated['is_available'] ?? true,
+        ]);
+
+        $product->load("category", "brand", 'currentBranchProduct.branch');
 
         return response()->json(
             [
@@ -91,7 +118,17 @@ class ProductController extends Controller
      */
     public function show(Product $product)
     {
-        $product->load("category", "brand");
+        $branchId = $this->currentDevice()->branch_id;
+
+        if (! $product->branchProducts()->where('branch_id', $branchId)->exists()) {
+            abort(404);
+        }
+
+        $product->load(
+            'category',
+            'brand',
+            ['currentBranchProduct' => fn ($q) => $q->where('branch_id', $branchId)->with('branch')],
+        );
 
         return response()->json([
             "success" => true,
@@ -104,13 +141,15 @@ class ProductController extends Controller
      */
     public function update(UpdateProductRequest $request, Product $product)
     {
-        $product->update(
-            array_merge($request->validated(), [
-                "min_stock" => $request->min_stock ?? $product->min_stock,
-            ]),
-        );
+        $branchId = $this->currentDevice()->branch_id;
 
-        $product->load("category", "brand");
+        $product->update($request->validated());
+
+        $product->load(
+            'category',
+            'brand',
+            ['currentBranchProduct' => fn ($q) => $q->where('branch_id', $branchId)->with('branch')],
+        );
 
         return response()->json([
             "success" => true,
@@ -124,11 +163,45 @@ class ProductController extends Controller
      */
     public function destroy(Product $product)
     {
-        $product->delete();
+        $branchId = $this->currentDevice()->branch_id;
+
+        $product->branchProducts()->where('branch_id', $branchId)->delete();
+
+        if (! $product->branchProducts()->exists()) {
+            $product->delete();
+        }
 
         return response()->json([
             "success" => true,
             "message" => "Product deleted successfully.",
+        ]);
+    }
+
+    public function updateBranch(UpdateProductBranchRequest $request, Product $product)
+    {
+        $branchId = $this->currentDevice()->branch_id;
+
+        $branchProduct = $product->branchProducts()
+            ->where('branch_id', $branchId)
+            ->firstOrFail();
+
+        $branchProduct->update([
+            'price' => $request->validated('price'),
+            'stock_quantity' => $request->validated('stock_quantity'),
+            'min_stock' => $request->validated('min_stock', $branchProduct->min_stock),
+            'is_available' => $request->validated('is_available', $branchProduct->is_available),
+        ]);
+
+        $product->load(
+            'category',
+            'brand',
+            ['currentBranchProduct' => fn ($q) => $q->where('branch_id', $branchId)->with('branch')],
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Product branch settings updated successfully.',
+            'data' => new ProductResource($product),
         ]);
     }
 
@@ -137,9 +210,14 @@ class ProductController extends Controller
      */
     public function lowStock()
     {
+        $branchId = $this->currentDevice()->branch_id;
+
         $products = Product::with("category", "brand")
-            ->lowStock()
-            ->orderBy("stock_quantity", "asc")
+            ->whereHas('branchProducts', fn ($q) => $q
+                ->where('branch_id', $branchId)
+                ->whereColumn('stock_quantity', '<=', 'min_stock'))
+            ->with(['currentBranchProduct' => fn ($q) => $q->where('branch_id', $branchId)->with('branch')])
+            ->orderBy("name", "asc")
             ->paginate(20);
 
         $resource = ProductResource::collection($products)

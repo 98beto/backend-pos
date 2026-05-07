@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\CashSessionController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\DeviceAuthController;
 use App\Http\Controllers\Api\InventoryMovementController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\SaleController;
@@ -22,48 +23,57 @@ use Illuminate\Support\Facades\Route;
 */
 
 // Dashboard
-Route::get('dashboard', [DashboardController::class, 'summary']);
+Route::post('auth/device/login', [DeviceAuthController::class, 'login']);
 
-// Brands
-Route::apiResource('brands', BrandController::class);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('auth/device/logout', [DeviceAuthController::class, 'logout']);
+    Route::get('auth/device/me', [DeviceAuthController::class, 'me']);
 
-// Branches
-Route::apiResource('branches', BranchController::class)->only(['index', 'store', 'show', 'update']);
+    // Dashboard
+    Route::get('dashboard', [DashboardController::class, 'summary']);
 
-// Categories
-Route::apiResource('categories', CategoryController::class);
+    // Brands
+    Route::apiResource('brands', BrandController::class);
 
-// Products
-Route::get('products/low-stock', [ProductController::class, 'lowStock']);
-Route::apiResource('products', ProductController::class);
+    // Branches
+    Route::apiResource('branches', BranchController::class)->only(['index', 'store', 'show', 'update']);
 
-// Customers
-Route::apiResource('customers', CustomerController::class);
+    // Categories
+    Route::apiResource('categories', CategoryController::class);
 
-// Suppliers
-Route::apiResource('suppliers', SupplierController::class);
+    // Products
+    Route::get('products/low-stock', [ProductController::class, 'lowStock']);
+    Route::patch('products/{product}/branch', [ProductController::class, 'updateBranch']);
+    Route::apiResource('products', ProductController::class);
 
-// Sales
-Route::apiResource('sales', SaleController::class)->only(['index', 'store', 'show']);
+    // Customers
+    Route::apiResource('customers', CustomerController::class);
 
-// Saved Carts
-Route::patch('saved-carts/{savedCart}/recover', [SavedCartController::class, 'recover']);
-Route::apiResource('saved-carts', SavedCartController::class);
+    // Suppliers
+    Route::apiResource('suppliers', SupplierController::class);
 
-// Sale Details (read-only; se crean junto con la venta)
-Route::apiResource('sale-details', SaleDetailController::class)->only(['index', 'show']);
+    // Sales
+    Route::apiResource('sales', SaleController::class)->only(['index', 'store', 'show']);
 
-// Cash Sessions
-Route::prefix('cash-sessions')->group(function () {
-    Route::get('/', [CashSessionController::class, 'index']);
-    Route::post('/open', [CashSessionController::class, 'open']);
-    Route::get('/current', [CashSessionController::class, 'current']);
-    Route::get('/{cashSession}/movements', [CashMovementController::class, 'index']);
-    Route::post('/{cashSession}/movements', [CashMovementController::class, 'store']);
-    Route::post('/{cashSession}/close', [CashSessionController::class, 'close']);
-    Route::get('/{cashSession}', [CashSessionController::class, 'show']);
+    // Saved Carts
+    Route::patch('saved-carts/{savedCart}/recover', [SavedCartController::class, 'recover']);
+    Route::apiResource('saved-carts', SavedCartController::class);
+
+    // Sale Details (read-only; se crean junto con la venta)
+    Route::apiResource('sale-details', SaleDetailController::class)->only(['index', 'show']);
+
+    // Cash Sessions
+    Route::prefix('cash-sessions')->group(function () {
+        Route::get('/', [CashSessionController::class, 'index']);
+        Route::post('/open', [CashSessionController::class, 'open']);
+        Route::get('/current', [CashSessionController::class, 'current']);
+        Route::get('/{cashSession}/movements', [CashMovementController::class, 'index']);
+        Route::post('/{cashSession}/movements', [CashMovementController::class, 'store']);
+        Route::post('/{cashSession}/close', [CashSessionController::class, 'close']);
+        Route::get('/{cashSession}', [CashSessionController::class, 'show']);
+    });
+
+    // Inventory Movements
+    Route::apiResource('inventory/movements', InventoryMovementController::class)
+        ->only(['index', 'store', 'show']);
 });
-
-// Inventory Movements
-Route::apiResource('inventory/movements', InventoryMovementController::class)
-    ->only(['index', 'store', 'show']);

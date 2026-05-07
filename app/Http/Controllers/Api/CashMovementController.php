@@ -17,6 +17,8 @@ class CashMovementController extends Controller
      */
     public function index(CashSession $cashSession)
     {
+        CashSessionRules::ensureCashSessionBelongsToDevice($cashSession, $this->currentDevice());
+
         $movements = $cashSession->cashMovements()
             ->with('branch')
             ->latest()
@@ -37,6 +39,8 @@ class CashMovementController extends Controller
      */
     public function store(StoreCashMovementRequest $request, CashSession $cashSession)
     {
+        CashSessionRules::ensureCashSessionBelongsToDevice($cashSession, $this->currentDevice());
+
         try {
             CashSessionRules::ensureCashSessionIsOpen($cashSession);
         } catch (ValidationException $e) {

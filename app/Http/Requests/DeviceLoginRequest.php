@@ -4,7 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class OpenCashSessionRequest extends FormRequest
+class DeviceLoginRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -14,8 +14,8 @@ class OpenCashSessionRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'opening_balance' => 'required|numeric|min:0',
-            'notes' => 'nullable|string',
+            'identifier' => 'required|string|max:255',
+            'secret' => 'required|string|max:255',
         ];
     }
 }

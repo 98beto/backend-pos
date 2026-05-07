@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Branch;
-use App\Models\CashSession;
+use App\Models\Device;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -11,22 +11,24 @@ class CashSessionBranchFilterTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_it_filters_cash_sessions_by_branch_id(): void
+    public function test_it_lists_only_cash_sessions_for_the_authenticated_branch(): void
     {
         $branchA = Branch::factory()->create();
         $branchB = Branch::factory()->create();
 
-        $sessionA = CashSession::factory()->open()->create([
-            'branch_id' => $branchA->id,
-            'device_identifier' => 'POS-01',
-        ]);
+        $deviceA = $this->actingAsDevice($branchA, ['identifier' => 'POS-01']);
+        $sessionA = $this->createOpenCashSession($deviceA);
 
-        CashSession::factory()->open()->create([
+        $deviceB = Device::factory()->create([
             'branch_id' => $branchB->id,
-            'device_identifier' => 'POS-02',
+            'identifier' => 'POS-02',
         ]);
 
-        $response = $this->getJson("/api/cash-sessions?branch_id={$branchA->id}");
+        $this->createOpenCashSession($deviceB);
+
+        $this->actingAs($deviceA, 'sanctum');
+
+        $response = $this->getJson('/api/cash-sessions');
 
         $response
             ->assertOk()

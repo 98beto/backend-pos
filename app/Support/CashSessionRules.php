@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\CashSession;
+use App\Models\Device;
 use Illuminate\Validation\ValidationException;
 
 class CashSessionRules
@@ -25,14 +26,22 @@ class CashSessionRules
         }
     }
 
-    public static function ensureNoOpenSessionForBranchDevice(int $branchId, string $deviceIdentifier): void
+    public static function ensureCashSessionBelongsToDevice(CashSession $cashSession, Device $device): void
+    {
+        if ((int) $cashSession->device_id !== (int) $device->id) {
+            throw ValidationException::withMessages([
+                'cash_session_id' => 'The selected cash session does not belong to the authenticated device.',
+            ]);
+        }
+    }
+
+    public static function ensureNoOpenSessionForDevice(int $deviceId): void
     {
         if (CashSession::where('status', 'open')
-            ->where('branch_id', $branchId)
-            ->where('device_identifier', $deviceIdentifier)
+            ->where('device_id', $deviceId)
             ->exists()) {
             throw ValidationException::withMessages([
-                'device_identifier' => 'A cash session is already open for this branch and device.',
+                'device_id' => 'A cash session is already open for this device.',
             ]);
         }
     }

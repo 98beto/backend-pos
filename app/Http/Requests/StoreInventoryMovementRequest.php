@@ -15,7 +15,6 @@ class StoreInventoryMovementRequest extends FormRequest
     {
         return [
             'product_id' => 'required|exists:products,id',
-            'branch_id'  => 'required|exists:branches,id',
             'type'       => 'required|in:in,out,adjustment',
             // For 'in'/'out' the minimum meaningful quantity is 1.
             // For 'adjustment' it may be 0 (setting stock to zero is valid).

@@ -3,8 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\Branch;
-use App\Models\CashSession;
-use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleDetail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -14,25 +12,29 @@ class DashboardBranchFilterTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_dashboard_filters_today_metrics_and_open_session_by_branch(): void
+    public function test_dashboard_uses_authenticated_device_branch_for_metrics(): void
     {
         $branchA = Branch::factory()->create();
         $branchB = Branch::factory()->create();
-        $product = Product::factory()->create([
-            'stock_quantity' => 20,
-            'is_active' => true,
-        ]);
-
-        $sessionA = CashSession::factory()->open()->create([
-            'branch_id' => $branchA->id,
-            'device_identifier' => 'POS-01',
+        $deviceA = $this->actingAsDevice($branchA, ['identifier' => 'POS-01']);
+        $sessionA = $this->createOpenCashSession($deviceA, [
             'opening_balance' => 500,
         ]);
 
-        CashSession::factory()->open()->create([
-            'branch_id' => $branchB->id,
-            'device_identifier' => 'POS-02',
+        $productA = $this->createProductInBranch($branchA, ['sku' => 'DASH-001'], [
+            'stock_quantity' => 2,
+            'min_stock' => 5,
+        ]);
+
+        $deviceB = $this->actingAsDevice($branchB, ['identifier' => 'POS-02']);
+        $sessionB = $this->createOpenCashSession($deviceB, [
             'opening_balance' => 300,
+        ]);
+
+        $productB = $this->createProductInBranch($branchB, ['sku' => 'DASH-002'], [
+            'stock_quantity' => 10,
+            'min_stock' => 5,
+            'is_available' => false,
         ]);
 
         $saleA = Sale::create([
@@ -50,7 +52,7 @@ class DashboardBranchFilterTest extends TestCase
 
         SaleDetail::create([
             'sale_id' => $saleA->id,
-            'product_id' => $product->id,
+            'product_id' => $productA->id,
             'quantity' => 2,
             'unit_price' => 50,
             'tax_amount' => 0,
@@ -60,10 +62,7 @@ class DashboardBranchFilterTest extends TestCase
 
         $saleB = Sale::create([
             'customer_id' => null,
-            'cash_session_id' => CashSession::factory()->open()->create([
-                'branch_id' => $branchB->id,
-                'device_identifier' => 'POS-03',
-            ])->id,
+            'cash_session_id' => $sessionB->id,
             'branch_id' => $branchB->id,
             'payment_method' => 'card',
             'subtotal' => 200,
@@ -76,7 +75,7 @@ class DashboardBranchFilterTest extends TestCase
 
         SaleDetail::create([
             'sale_id' => $saleB->id,
-            'product_id' => $product->id,
+            'product_id' => $productB->id,
             'quantity' => 4,
             'unit_price' => 50,
             'tax_amount' => 0,
@@ -84,7 +83,9 @@ class DashboardBranchFilterTest extends TestCase
             'total' => 200,
         ]);
 
-        $response = $this->getJson("/api/dashboard?branch_id={$branchA->id}");
+        $this->actingAs($deviceA, 'sanctum');
+
+        $response = $this->getJson('/api/dashboard');
 
         $response
             ->assertOk()
@@ -92,30 +93,8 @@ class DashboardBranchFilterTest extends TestCase
             ->assertJsonPath('data.today.revenue', 100)
             ->assertJsonPath('data.today.items_sold', 2)
             ->assertJsonPath('data.cash_session.id', $sessionA->id)
-            ->assertJsonPath('data.cash_session.opening_balance', 500);
-    }
-
-    public function test_dashboard_inventory_snapshot_remains_global_when_branch_filter_is_present(): void
-    {
-        $branch = Branch::factory()->create();
-
-        Product::factory()->create([
-            'is_active' => true,
-            'stock_quantity' => 2,
-            'min_stock' => 5,
-        ]);
-
-        Product::factory()->create([
-            'is_active' => false,
-            'stock_quantity' => 10,
-            'min_stock' => 5,
-        ]);
-
-        $response = $this->getJson("/api/dashboard?branch_id={$branch->id}");
-
-        $response
-            ->assertOk()
-            ->assertJsonPath('data.inventory.total_products', 2)
+            ->assertJsonPath('data.cash_session.opening_balance', 500)
+            ->assertJsonPath('data.inventory.total_products', 1)
             ->assertJsonPath('data.inventory.active_products', 1)
             ->assertJsonPath('data.inventory.low_stock_count', 1);
     }

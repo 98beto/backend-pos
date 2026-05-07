@@ -16,6 +16,7 @@ return new class extends Migration {
 
             $table->foreignId("customer_id")->nullable()->constrained();
             $table->foreignId("cash_session_id")->constrained();
+            $table->foreignId("branch_id")->constrained();
 
             $table->decimal("tax_amount", 10, 2)->default(0);
             $table->decimal("subtotal", 10, 2);

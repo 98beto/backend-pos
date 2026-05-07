@@ -11,7 +11,7 @@ class CashSession extends Model
 
     protected $fillable = [
         'branch_id',
-        'device_identifier',
+        'device_id',
         'opening_balance',
         'closing_balance',
         'opened_at',
@@ -40,6 +40,11 @@ class CashSession extends Model
     public function branch()
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    public function device()
+    {
+        return $this->belongsTo(Device::class);
     }
 
     public function savedCarts()

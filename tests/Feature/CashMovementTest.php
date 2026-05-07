@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\Branch;
-use App\Models\CashSession;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -14,11 +13,8 @@ class CashMovementTest extends TestCase
     public function test_it_records_a_manual_cash_movement_for_an_open_session(): void
     {
         $branch = Branch::factory()->create();
-
-        $session = CashSession::factory()->open()->create([
-            'branch_id' => $branch->id,
-            'device_identifier' => 'POS-01',
-        ]);
+        $device = $this->actingAsDevice($branch);
+        $session = $this->createOpenCashSession($device);
 
         $response = $this->postJson("/api/cash-sessions/{$session->id}/movements", [
             'type' => 'out',
@@ -31,19 +27,14 @@ class CashMovementTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.cash_session_id', $session->id)
             ->assertJsonPath('data.branch_id', $branch->id)
-            ->assertJsonPath('data.branch.id', $branch->id)
-            ->assertJsonPath('data.branch.name', $branch->name)
             ->assertJsonPath('data.category', 'withdrawal');
     }
 
     public function test_it_rejects_manual_sale_category_movements(): void
     {
         $branch = Branch::factory()->create();
-
-        $session = CashSession::factory()->open()->create([
-            'branch_id' => $branch->id,
-            'device_identifier' => 'POS-01',
-        ]);
+        $device = $this->actingAsDevice($branch);
+        $session = $this->createOpenCashSession($device);
 
         $response = $this->postJson("/api/cash-sessions/{$session->id}/movements", [
             'type' => 'in',
@@ -59,11 +50,11 @@ class CashMovementTest extends TestCase
     public function test_it_rejects_movements_for_closed_sessions(): void
     {
         $branch = Branch::factory()->create();
+        $device = $this->actingAsDevice($branch);
 
-        $session = CashSession::factory()->create([
-            'branch_id' => $branch->id,
-            'device_identifier' => 'POS-01',
+        $session = $this->createOpenCashSession($device, [
             'status' => 'closed',
+            'closed_at' => now(),
         ]);
 
         $response = $this->postJson("/api/cash-sessions/{$session->id}/movements", [
@@ -80,11 +71,8 @@ class CashMovementTest extends TestCase
     public function test_it_requires_notes_for_adjustment_movements(): void
     {
         $branch = Branch::factory()->create();
-
-        $session = CashSession::factory()->open()->create([
-            'branch_id' => $branch->id,
-            'device_identifier' => 'POS-01',
-        ]);
+        $device = $this->actingAsDevice($branch);
+        $session = $this->createOpenCashSession($device);
 
         $response = $this->postJson("/api/cash-sessions/{$session->id}/movements", [
             'type' => 'in',

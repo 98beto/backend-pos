@@ -2,8 +2,10 @@
 
 namespace App\Actions\Sales;
 
+use App\Models\BranchProduct;
 use App\Models\CashMovement;
 use App\Models\CashSession;
+use App\Models\Device;
 use App\Models\InventoryMovement;
 use App\Models\Product;
 use App\Models\Sale;
@@ -13,21 +15,32 @@ use Illuminate\Validation\ValidationException;
 
 class ProcessSale
 {
-    public function handle(array $validated): Sale
+    public function handle(Device $device, array $validated): Sale
     {
-        return DB::transaction(function () use ($validated) {
+        return DB::transaction(function () use ($device, $validated) {
             $cashSession = CashSession::lockForUpdate()->findOrFail($validated['cash_session_id']);
 
             CashSessionRules::ensureCashSessionIsOpen($cashSession);
-            CashSessionRules::ensureCashSessionBelongsToBranch($cashSession, (int) $validated['branch_id']);
+            CashSessionRules::ensureCashSessionBelongsToDevice($cashSession, $device);
 
             foreach ($validated['items'] as $item) {
                 $product = Product::lockForUpdate()->findOrFail($item['product_id']);
+                $branchProduct = BranchProduct::query()
+                    ->where('branch_id', $device->branch_id)
+                    ->where('product_id', $product->id)
+                    ->lockForUpdate()
+                    ->first();
 
-                if ($product->stock_quantity < $item['quantity']) {
+                if (! $branchProduct || ! $branchProduct->is_available) {
+                    throw ValidationException::withMessages([
+                        'items' => 'The selected product is not available in this branch.',
+                    ]);
+                }
+
+                if ($branchProduct->stock_quantity < $item['quantity']) {
                     throw ValidationException::withMessages([
                         'items' => 'Insufficient stock for product: "'.$product->name.'". '
-                            .'Available: '.$product->stock_quantity.', Requested: '.$item['quantity'].'.',
+                            .'Available: '.$branchProduct->stock_quantity.', Requested: '.$item['quantity'].'.',
                     ]);
                 }
             }
@@ -40,7 +53,7 @@ class ProcessSale
             $sale = Sale::create([
                 'customer_id' => $validated['customer_id'] ?? null,
                 'cash_session_id' => $validated['cash_session_id'],
-                'branch_id' => $validated['branch_id'],
+                'branch_id' => $device->branch_id,
                 'payment_method' => $validated['payment_method'],
                 'subtotal' => $subtotal,
                 'tax_amount' => $taxAmount,
@@ -51,6 +64,12 @@ class ProcessSale
             ]);
 
             foreach ($validated['items'] as $item) {
+                $branchProduct = BranchProduct::query()
+                    ->where('branch_id', $device->branch_id)
+                    ->where('product_id', $item['product_id'])
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
                 $sale->saleDetails()->create([
                     'product_id' => $item['product_id'],
                     'quantity' => $item['quantity'],
@@ -60,7 +79,7 @@ class ProcessSale
                     'total' => $item['total'],
                 ]);
 
-                Product::where('id', $item['product_id'])->decrement('stock_quantity', $item['quantity']);
+                $branchProduct->decrement('stock_quantity', $item['quantity']);
 
                 InventoryMovement::create([
                     'product_id' => $item['product_id'],

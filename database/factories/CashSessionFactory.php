@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Models\Branch;
 use App\Models\CashSession;
+use App\Models\Device;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -20,8 +21,8 @@ class CashSessionFactory extends Factory
         $closedAt = (clone $openedAt)->modify('+8 hours');
 
         return [
-            'branch_id'       => Branch::factory(),
-            'device_identifier' => 'POS-01',
+            'branch_id' => null,
+            'device_id' => Device::factory(),
             'status'          => 'closed',
             'opening_balance' => 500.00,
             'closing_balance' => $this->faker->randomFloat(2, 800, 3000),
@@ -37,14 +38,27 @@ class CashSessionFactory extends Factory
     public function open(): static
     {
         return $this->state(fn () => [
-            'branch_id'       => Branch::factory(),
-            'device_identifier' => 'POS-01',
-            'status'          => 'open',
+            'status' => 'open',
             'opening_balance' => 500.00,
             'closing_balance' => null,
-            'opened_at'       => now()->setTime(8, 0),
-            'closed_at'       => null,
-            'notes'           => 'Turno apertura',
+            'opened_at' => now()->setTime(8, 0),
+            'closed_at' => null,
+            'notes' => 'Turno apertura',
         ]);
+    }
+
+    public function configure(): static
+    {
+        return $this->afterMaking(function (CashSession $cashSession) {
+            if ($cashSession->device_id && ! $cashSession->branch_id) {
+                $cashSession->branch_id = Device::find($cashSession->device_id)?->branch_id;
+            }
+        })->afterCreating(function (CashSession $cashSession) {
+            if (! $cashSession->branch_id && $cashSession->device_id) {
+                $cashSession->update([
+                    'branch_id' => $cashSession->device?->branch_id,
+                ]);
+            }
+        });
     }
 }

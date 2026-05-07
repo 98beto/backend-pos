@@ -20,9 +20,11 @@ class SavedCartController extends Controller
      */
     public function index(Request $request)
     {
+        $branchId = $this->currentDevice()->branch_id;
+
         $savedCarts = SavedCart::with(['customer', 'cashSession', 'items.product'])
             ->with('branch')
-            ->when($request->branch_id, fn ($q, $branchId) => $q->where('branch_id', $branchId))
+            ->where('branch_id', $branchId)
             ->when(
                 $request->status,
                 fn ($q, $status) => $q->where('status', $status),
@@ -47,12 +49,13 @@ class SavedCartController extends Controller
     public function store(StoreSavedCartRequest $request)
     {
         $validated = $request->validated();
+        $device = $this->currentDevice();
 
         try {
             if (! empty($validated['cash_session_id'])) {
                 $cashSession = CashSession::findOrFail($validated['cash_session_id']);
 
-                CashSessionRules::ensureCashSessionBelongsToBranch($cashSession, (int) $validated['branch_id']);
+                CashSessionRules::ensureCashSessionBelongsToDevice($cashSession, $device);
             }
         } catch (ValidationException $e) {
                 return response()->json([
@@ -62,12 +65,12 @@ class SavedCartController extends Controller
                 ], 422);
         }
 
-        $savedCart = DB::transaction(function () use ($validated) {
+        $savedCart = DB::transaction(function () use ($validated, $device) {
             $savedCart = SavedCart::create([
                 'name' => $validated['name'],
                 'customer_id' => $validated['customer_id'] ?? null,
                 'cash_session_id' => $validated['cash_session_id'] ?? null,
-                'branch_id' => $validated['branch_id'],
+                'branch_id' => $device->branch_id,
                 'discount_amount' => $validated['discount_amount'] ?? 0,
                 'status' => $validated['status'] ?? 'saved',
                 'notes' => $validated['notes'] ?? null,
@@ -94,6 +97,10 @@ class SavedCartController extends Controller
      */
     public function show(SavedCart $savedCart)
     {
+        if ((int) $savedCart->branch_id !== (int) $this->currentDevice()->branch_id) {
+            abort(404);
+        }
+
         $savedCart->load(['customer', 'cashSession', 'items.product', 'branch']);
 
         return response()->json([
@@ -107,13 +114,18 @@ class SavedCartController extends Controller
      */
     public function update(UpdateSavedCartRequest $request, SavedCart $savedCart)
     {
+        if ((int) $savedCart->branch_id !== (int) $this->currentDevice()->branch_id) {
+            abort(404);
+        }
+
         $validated = $request->validated();
+        $device = $this->currentDevice();
 
         try {
             if (! empty($validated['cash_session_id'])) {
                 $cashSession = CashSession::findOrFail($validated['cash_session_id']);
 
-                CashSessionRules::ensureCashSessionBelongsToBranch($cashSession, (int) $validated['branch_id']);
+                CashSessionRules::ensureCashSessionBelongsToDevice($cashSession, $device);
             }
         } catch (ValidationException $e) {
                 return response()->json([
@@ -123,12 +135,12 @@ class SavedCartController extends Controller
                 ], 422);
         }
 
-        DB::transaction(function () use ($validated, $savedCart) {
+        DB::transaction(function () use ($validated, $savedCart, $device) {
             $savedCart->update([
                 'name' => $validated['name'],
                 'customer_id' => $validated['customer_id'] ?? null,
                 'cash_session_id' => $validated['cash_session_id'] ?? null,
-                'branch_id' => $validated['branch_id'],
+                'branch_id' => $device->branch_id,
                 'discount_amount' => $validated['discount_amount'] ?? 0,
                 'status' => $validated['status'] ?? 'saved',
                 'notes' => $validated['notes'] ?? null,
@@ -155,6 +167,10 @@ class SavedCartController extends Controller
      */
     public function destroy(SavedCart $savedCart)
     {
+        if ((int) $savedCart->branch_id !== (int) $this->currentDevice()->branch_id) {
+            abort(404);
+        }
+
         $savedCart->delete();
 
         return response()->json([
@@ -168,6 +184,10 @@ class SavedCartController extends Controller
      */
     public function recover(SavedCart $savedCart)
     {
+        if ((int) $savedCart->branch_id !== (int) $this->currentDevice()->branch_id) {
+            abort(404);
+        }
+
         $savedCart->update([
             'status' => 'in_progress',
         ]);

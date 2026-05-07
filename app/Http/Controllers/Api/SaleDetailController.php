@@ -15,12 +15,11 @@ class SaleDetailController extends Controller
      */
     public function index(Request $request)
     {
+        $branchId = $this->currentDevice()->branch_id;
+
         $details = SaleDetail::with('product', 'sale.branch')
             ->when($request->sale_id, fn ($q) => $q->where('sale_id', $request->sale_id))
-            ->when(
-                $request->branch_id,
-                fn ($q, $branchId) => $q->whereHas('sale', fn ($saleQuery) => $saleQuery->where('branch_id', $branchId)),
-            )
+            ->whereHas('sale', fn ($saleQuery) => $saleQuery->where('branch_id', $branchId))
             ->latest()
             ->paginate(20);
 
@@ -39,6 +38,10 @@ class SaleDetailController extends Controller
      */
     public function show(SaleDetail $saleDetail)
     {
+        if ((int) $saleDetail->sale?->branch_id !== (int) $this->currentDevice()->branch_id) {
+            abort(404);
+        }
+
         $saleDetail->load('product', 'sale.branch');
 
         return response()->json([

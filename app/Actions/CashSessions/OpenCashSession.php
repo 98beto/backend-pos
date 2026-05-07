@@ -3,20 +3,18 @@
 namespace App\Actions\CashSessions;
 
 use App\Models\CashSession;
+use App\Models\Device;
 use App\Support\CashSessionRules;
 
 class OpenCashSession
 {
-    public function handle(array $validated): CashSession
+    public function handle(Device $device, array $validated): CashSession
     {
-        CashSessionRules::ensureNoOpenSessionForBranchDevice(
-            (int) $validated['branch_id'],
-            $validated['device_identifier'],
-        );
+        CashSessionRules::ensureNoOpenSessionForDevice($device->id);
 
         return CashSession::create([
-            'branch_id' => $validated['branch_id'],
-            'device_identifier' => $validated['device_identifier'],
+            'branch_id' => $device->branch_id,
+            'device_id' => $device->id,
             'opening_balance' => $validated['opening_balance'],
             'notes' => $validated['notes'] ?? null,
             'status' => 'open',

@@ -18,6 +18,8 @@ class SaleController extends Controller
      */
     public function index(Request $request)
     {
+        $device = $this->currentDevice();
+
         $normalizedSearch = $request->search
             ? Str::of($request->search)->ascii()->lower()->value()
             : null;
@@ -49,8 +51,8 @@ class SaleController extends Controller
                 fn($q, $id) => $q->where("cash_session_id", $id),
             )
             ->when(
-                $request->branch_id,
-                fn($q, $id) => $q->where("branch_id", $id),
+                true,
+                fn($q) => $q->where("branch_id", $device->branch_id),
             )
             ->when(
                 $request->payment_method,
@@ -103,7 +105,7 @@ class SaleController extends Controller
         $validated = $request->validated();
 
         try {
-            $sale = $processSale->handle($validated);
+            $sale = $processSale->handle($this->currentDevice(), $validated);
 
             $sale->load("customer", "cashSession", "saleDetails.product", "branch");
 
@@ -143,6 +145,10 @@ class SaleController extends Controller
      */
     public function show(Sale $sale)
     {
+        if ((int) $sale->branch_id !== (int) $this->currentDevice()->branch_id) {
+            abort(404);
+        }
+
         $sale->load("customer", "cashSession", "saleDetails.product", "branch");
 
         return response()->json([

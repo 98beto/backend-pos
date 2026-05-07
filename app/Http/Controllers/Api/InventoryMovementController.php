@@ -22,9 +22,11 @@ class InventoryMovementController extends Controller
      */
     public function index(Request $request)
     {
+        $branchId = $this->currentDevice()->branch_id;
+
         $movements = InventoryMovement::with('product', 'branch')
             ->when($request->product_id, fn ($q) => $q->where('product_id', $request->product_id))
-            ->when($request->branch_id, fn ($q, $branchId) => $q->where('branch_id', $branchId))
+            ->where('branch_id', $branchId)
             ->when($request->type,       fn ($q, $type) => $q->where('type', $type))
             ->when($request->source,     fn ($q, $source) => $q->where('source', $source))
             ->when($request->reference_id, fn ($q, $referenceId) => $q->where('reference_id', $referenceId))
@@ -48,7 +50,9 @@ class InventoryMovementController extends Controller
     public function store(StoreInventoryMovementRequest $request, RecordInventoryMovement $recordInventoryMovement)
     {
         try {
-            $movement = $recordInventoryMovement->handle($request->validated());
+            $movement = $recordInventoryMovement->handle(array_merge($request->validated(), [
+                'branch_id' => $this->currentDevice()->branch_id,
+            ]));
 
             $movement->load('product', 'branch');
 
@@ -77,6 +81,10 @@ class InventoryMovementController extends Controller
      */
     public function show(InventoryMovement $movement)
     {
+        if ((int) $movement->branch_id !== (int) $this->currentDevice()->branch_id) {
+            abort(404);
+        }
+
         $movement->load('product', 'branch');
 
         return response()->json([

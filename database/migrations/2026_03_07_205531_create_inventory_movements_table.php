@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('inventory_movements', function (Blueprint $table) {
             $table->id();
             $table->foreignId('product_id')->constrained();
+            $table->foreignId('branch_id')->constrained();
             $table->enum('type', ['in', 'out', 'adjustment']);
             $table->integer('quantity');
             $table->string('source')->default('manual');

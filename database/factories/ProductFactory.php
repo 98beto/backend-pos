@@ -73,14 +73,10 @@ class ProductFactory extends Factory
             'sku'           => $item['sku'],
             'description'   => null,
             'cost_price'    => $item['cost'],
-            'price'         => $item['price'],
-            'stock_quantity' => $this->faker->numberBetween(0, 80),
-            'min_stock'     => $item['min_stock'],
             'unit_measure'  => $item['unit'],
-            'barcode'       => null,
-            'is_active'     => true,
             'category_id'   => null,
             'brand_id'      => null,
         ];
     }
+
 }

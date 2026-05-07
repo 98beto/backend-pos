@@ -2,9 +2,9 @@
 
 namespace Database\Factories;
 
-use App\Models\Branch;
 use App\Models\CashSession;
 use App\Models\Customer;
+use App\Models\Device;
 use App\Models\Sale;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -17,10 +17,16 @@ class SaleFactory extends Factory
 
     public function definition(): array
     {
+        $device = Device::factory()->create();
+        $cashSession = CashSession::factory()->open()->create([
+            'branch_id' => $device->branch_id,
+            'device_id' => $device->id,
+        ]);
+
         return [
             'customer_id'     => $this->faker->boolean(60) ? Customer::inRandomOrder()->first()?->id : null,
-            'cash_session_id' => CashSession::factory()->open(),
-            'branch_id'       => Branch::factory(),
+            'cash_session_id' => $cashSession->id,
+            'branch_id'       => $device->branch_id,
             'payment_method'  => $this->faker->randomElement(['cash', 'cash', 'cash', 'card', 'transfer']),
             'subtotal'        => 0,
             'tax_amount'      => 0,

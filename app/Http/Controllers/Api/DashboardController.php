@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\BranchProduct;
 use App\Models\CashSession;
-use App\Models\Product;
 use App\Models\Sale;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -35,10 +35,12 @@ class DashboardController extends Controller
      */
     public function summary(Request $request)
     {
+        $device = $this->currentDevice();
+
         // ── Today's sales ──────────────────────────────────────────────────────
         $todaySales = Sale::whereDate('sale_date', today())
             ->where('status', 'completed')
-            ->when($request->branch_id, fn ($q, $branchId) => $q->where('branch_id', $branchId));
+            ->where('branch_id', $device->branch_id);
 
         $todaySalesCount = (clone $todaySales)->count();
         $todayRevenue    = (clone $todaySales)->sum('total_amount');
@@ -47,19 +49,20 @@ class DashboardController extends Controller
             ->join('sales', 'sale_details.sale_id', '=', 'sales.id')
             ->whereDate('sales.sale_date', today())
             ->where('sales.status', 'completed')
-            ->when($request->branch_id, fn ($q, $branchId) => $q->where('sales.branch_id', $branchId))
+            ->where('sales.branch_id', $device->branch_id)
             ->sum('sale_details.quantity');
 
         // ── Open cash session ──────────────────────────────────────────────────
         $openSession = CashSession::open()
-            ->when($request->branch_id, fn ($q, $branchId) => $q->where('branch_id', $branchId))
+            ->where('device_id', $device->id)
             ->latest('opened_at')
             ->first();
 
         // ── Inventory snapshot ─────────────────────────────────────────────────
-        $totalProducts  = Product::count();
-        $activeProducts = Product::where('is_active', true)->count();
-        $lowStockCount  = Product::lowStock()->count();
+        $branchInventory = BranchProduct::where('branch_id', $device->branch_id);
+        $totalProducts = (clone $branchInventory)->count();
+        $activeProducts = (clone $branchInventory)->where('is_available', true)->count();
+        $lowStockCount = (clone $branchInventory)->lowStock()->count();
 
         return response()->json([
             'success' => true,

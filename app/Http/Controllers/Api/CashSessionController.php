@@ -9,8 +9,8 @@ use App\Http\Requests\CloseCashSessionRequest;
 use App\Http\Requests\OpenCashSessionRequest;
 use App\Http\Resources\CashSessionResource;
 use App\Models\CashSession;
+use App\Support\CashSessionRules;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
 class CashSessionController extends Controller
@@ -20,11 +20,10 @@ class CashSessionController extends Controller
      */
     public function index(Request $request)
     {
-        $sessions = CashSession::when(
-                $request->branch_id,
-                fn ($q, $branchId) => $q->where('branch_id', $branchId),
-            )
-            ->with('branch')
+        $device = $this->currentDevice();
+
+        $sessions = CashSession::where('branch_id', $device->branch_id)
+            ->with('branch', 'device')
             ->latest()
             ->paginate(20);
 
@@ -43,7 +42,9 @@ class CashSessionController extends Controller
      */
     public function show(CashSession $cashSession)
     {
-        $cashSession->load('sales', 'branch');
+        CashSessionRules::ensureCashSessionBelongsToDevice($cashSession, $this->currentDevice());
+
+        $cashSession->load('sales', 'branch', 'device');
 
         return response()->json([
             'success' => true,
@@ -56,25 +57,11 @@ class CashSessionController extends Controller
      */
     public function current(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'branch_id' => 'required|exists:branches,id',
-            'device_identifier' => 'required|string|max:100',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed.',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
-        $validated = $validator->validated();
+        $device = $this->currentDevice();
 
         $session = CashSession::open()
-            ->where('branch_id', $validated['branch_id'])
-            ->where('device_identifier', $validated['device_identifier'])
-            ->with('branch')
+            ->where('device_id', $device->id)
+            ->with('branch', 'device')
             ->latest('opened_at')
             ->first();
 
@@ -98,7 +85,7 @@ class CashSessionController extends Controller
     public function open(OpenCashSessionRequest $request, OpenCashSession $openCashSession)
     {
         try {
-            $session = $openCashSession->handle($request->validated());
+            $session = $openCashSession->handle($this->currentDevice(), $request->validated());
         } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,
@@ -107,7 +94,7 @@ class CashSessionController extends Controller
             ], 422);
         }
 
-        $session->load('branch');
+        $session->load('branch', 'device');
 
         return response()->json([
             'success' => true,
@@ -122,6 +109,8 @@ class CashSessionController extends Controller
      */
     public function close(CloseCashSessionRequest $request, CashSession $cashSession, CloseCashSession $closeCashSession)
     {
+        CashSessionRules::ensureCashSessionBelongsToDevice($cashSession, $this->currentDevice());
+
         if ($cashSession->status === 'closed') {
             return response()->json([
                 'success' => false,
@@ -129,7 +118,7 @@ class CashSessionController extends Controller
             ], 422);
         }
 
-        $cashSession->load('branch');
+        $cashSession->load('branch', 'device');
         $result = $closeCashSession->handle($cashSession, $request->validated());
 
         return response()->json([

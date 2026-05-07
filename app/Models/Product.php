@@ -13,21 +13,14 @@ class Product extends Model
         "name",
         "description",
         "cost_price",
-        "price",
-        "stock_quantity",
-        "min_stock",
         "unit_measure",
-        "barcode",
         "sku",
-        "is_active",
         "category_id",
         "brand_id",
     ];
 
     protected $casts = [
         "cost_price" => "decimal:2",
-        "price"      => "decimal:2",
-        "is_active"  => "boolean",
     ];
 
     public function category()
@@ -45,6 +38,16 @@ class Product extends Model
         return $this->hasMany(InventoryMovement::class);
     }
 
+    public function branchProducts()
+    {
+        return $this->hasMany(BranchProduct::class);
+    }
+
+    public function currentBranchProduct()
+    {
+        return $this->hasOne(BranchProduct::class);
+    }
+
     public function saleDetails()
     {
         return $this->hasMany(SaleDetail::class);
@@ -55,11 +58,4 @@ class Product extends Model
         return $this->hasMany(SavedCartItem::class);
     }
 
-    /**
-     * Scope: products where stock_quantity is at or below min_stock.
-     */
-    public function scopeLowStock($query)
-    {
-        return $query->whereColumn('stock_quantity', '<=', 'min_stock');
-    }
 }

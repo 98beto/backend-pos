@@ -3,8 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Branch;
-use App\Models\CashSession;
-use App\Models\Product;
+use App\Models\Device;
 use App\Models\SavedCart;
 use App\Models\SavedCartItem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -14,10 +13,11 @@ class SavedCartBranchTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_it_filters_saved_carts_by_branch_id(): void
+    public function test_it_lists_only_saved_carts_for_the_authenticated_branch(): void
     {
         $branchA = Branch::factory()->create();
         $branchB = Branch::factory()->create();
+        $this->actingAsDevice($branchA);
 
         $expected = SavedCart::factory()->create([
             'branch_id' => $branchA->id,
@@ -27,25 +27,23 @@ class SavedCartBranchTest extends TestCase
             'branch_id' => $branchB->id,
         ]);
 
-        $response = $this->getJson("/api/saved-carts?branch_id={$branchA->id}");
+        $response = $this->getJson('/api/saved-carts');
 
         $response
             ->assertOk()
             ->assertJsonCount(1, 'data.data')
             ->assertJsonPath('data.data.0.id', $expected->id)
-            ->assertJsonPath('data.data.0.branch_id', $branchA->id)
-            ->assertJsonPath('data.data.0.branch.id', $branchA->id)
-            ->assertJsonPath('data.data.0.branch.name', $branchA->name);
+            ->assertJsonPath('data.data.0.branch_id', $branchA->id);
     }
 
-    public function test_it_stores_branch_id_on_saved_carts(): void
+    public function test_it_stores_branch_id_on_saved_carts_from_device_context(): void
     {
         $branch = Branch::factory()->create();
-        $product = Product::factory()->create();
+        $device = $this->actingAsDevice($branch);
+        $product = $this->createProductInBranch($branch, ['sku' => 'CART-001']);
 
         $response = $this->postJson('/api/saved-carts', [
             'name' => 'Mostrador 1',
-            'branch_id' => $branch->id,
             'items' => [
                 [
                     'product_id' => $product->id,
@@ -61,8 +59,7 @@ class SavedCartBranchTest extends TestCase
         $response
             ->assertCreated()
             ->assertJsonPath('data.branch_id', $branch->id)
-            ->assertJsonPath('data.branch.id', $branch->id)
-            ->assertJsonPath('data.branch.name', $branch->name);
+            ->assertJsonPath('data.branch.id', $branch->id);
 
         $this->assertDatabaseHas('saved_carts', [
             'name' => 'Mostrador 1',
@@ -70,19 +67,21 @@ class SavedCartBranchTest extends TestCase
         ]);
     }
 
-    public function test_it_rejects_saving_a_cart_with_a_cash_session_from_another_branch(): void
+    public function test_it_rejects_saving_a_cart_with_a_cash_session_from_another_device(): void
     {
-        $branchA = Branch::factory()->create();
-        $branchB = Branch::factory()->create();
-        $product = Product::factory()->create();
-        $cashSession = CashSession::factory()->open()->create([
-            'branch_id' => $branchA->id,
-            'device_identifier' => 'POS-01',
+        $branch = Branch::factory()->create();
+        $deviceA = $this->actingAsDevice($branch, ['identifier' => 'POS-01']);
+        $deviceB = Device::factory()->create([
+            'branch_id' => $branch->id,
+            'identifier' => 'POS-02',
         ]);
+        $product = $this->createProductInBranch($branch, ['sku' => 'CART-002']);
+        $cashSession = $this->createOpenCashSession($deviceA);
+
+        $this->actingAs($deviceB, 'sanctum');
 
         $response = $this->postJson('/api/saved-carts', [
             'name' => 'Mostrador 1',
-            'branch_id' => $branchB->id,
             'cash_session_id' => $cashSession->id,
             'items' => [
                 [
@@ -98,17 +97,15 @@ class SavedCartBranchTest extends TestCase
 
         $response
             ->assertStatus(422)
-            ->assertJsonPath('message', 'The selected cash session does not belong to the given branch.');
+            ->assertJsonPath('errors.cash_session_id.0', 'The selected cash session does not belong to the authenticated device.');
     }
 
-    public function test_it_updates_saved_cart_with_branch_and_matching_cash_session(): void
+    public function test_it_updates_saved_cart_with_matching_cash_session(): void
     {
         $branch = Branch::factory()->create();
-        $product = Product::factory()->create();
-        $cashSession = CashSession::factory()->open()->create([
-            'branch_id' => $branch->id,
-            'device_identifier' => 'POS-01',
-        ]);
+        $device = $this->actingAsDevice($branch, ['identifier' => 'POS-01']);
+        $product = $this->createProductInBranch($branch, ['sku' => 'CART-003']);
+        $cashSession = $this->createOpenCashSession($device);
 
         $savedCart = SavedCart::factory()->create([
             'branch_id' => $branch->id,
@@ -121,7 +118,6 @@ class SavedCartBranchTest extends TestCase
 
         $response = $this->putJson("/api/saved-carts/{$savedCart->id}", [
             'name' => 'Actualizado',
-            'branch_id' => $branch->id,
             'cash_session_id' => $cashSession->id,
             'items' => [
                 [
@@ -138,43 +134,7 @@ class SavedCartBranchTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('data.branch_id', $branch->id)
-            ->assertJsonPath('data.branch.id', $branch->id)
             ->assertJsonPath('data.cash_session_id', $cashSession->id)
             ->assertJsonPath('data.name', 'Actualizado');
-    }
-
-    public function test_it_rejects_updating_a_saved_cart_with_a_cash_session_from_another_branch(): void
-    {
-        $branchA = Branch::factory()->create();
-        $branchB = Branch::factory()->create();
-        $product = Product::factory()->create();
-        $cashSession = CashSession::factory()->open()->create([
-            'branch_id' => $branchB->id,
-            'device_identifier' => 'POS-02',
-        ]);
-
-        $savedCart = SavedCart::factory()->create([
-            'branch_id' => $branchA->id,
-        ]);
-
-        $response = $this->putJson("/api/saved-carts/{$savedCart->id}", [
-            'name' => 'Actualizado',
-            'branch_id' => $branchA->id,
-            'cash_session_id' => $cashSession->id,
-            'items' => [
-                [
-                    'product_id' => $product->id,
-                    'quantity' => 1,
-                    'unit_price' => 20,
-                    'tax_amount' => 0,
-                    'subtotal' => 20,
-                    'total' => 20,
-                ],
-            ],
-        ]);
-
-        $response
-            ->assertStatus(422)
-            ->assertJsonPath('message', 'The selected cash session does not belong to the given branch.');
     }
 }

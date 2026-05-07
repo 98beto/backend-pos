@@ -16,6 +16,7 @@ return new class extends Migration
             $table->string('name');
             $table->foreignId('customer_id')->nullable()->constrained();
             $table->foreignId('cash_session_id')->nullable()->constrained();
+            $table->foreignId('branch_id')->constrained();
             $table->decimal('discount_amount', 10, 2)->default(0);
             $table->string('status')->default('saved');
             $table->text('notes')->nullable();

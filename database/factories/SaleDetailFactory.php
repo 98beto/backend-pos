@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\BranchProduct;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleDetail;
@@ -16,9 +17,10 @@ class SaleDetailFactory extends Factory
 
     public function definition(): array
     {
-        $product  = Product::inRandomOrder()->first();
+        $product  = Product::inRandomOrder()->first() ?? Product::factory()->create();
+        $branchProduct = BranchProduct::where('product_id', $product?->id)->inRandomOrder()->first();
         $quantity = $this->faker->numberBetween(1, 5);
-        $price    = $product->price ?? 100;
+        $price    = $branchProduct?->price ?? 100;
         $subtotal = round($quantity * $price, 2);
         $tax      = 0;
         $total    = $subtotal;
