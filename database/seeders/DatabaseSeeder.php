@@ -11,6 +11,7 @@ use App\Models\InventoryMovement;
 use App\Models\Product;
 use App\Models\Supplier;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\App;
 
 class DatabaseSeeder extends Seeder
 {
@@ -287,6 +288,8 @@ class DatabaseSeeder extends Seeder
             ]);
         }
 
-        $this->call(DeviceSeeder::class);
+        if (! App::environment('production')) {
+            $this->call(DeviceSeeder::class);
+        }
     }
 }
